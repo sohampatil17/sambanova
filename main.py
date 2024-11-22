@@ -2,10 +2,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import openai
 import os
-from typing import List
+from typing import List, Optional
 import tempfile
 import subprocess
 import uvicorn
@@ -17,6 +17,11 @@ import pkg_resources
 import ast
 import sys
 import socket
+from github import Github, InputGitTreeElement
+import github
+from urllib.parse import quote
+import requests
+import json
 
 app = FastAPI()
 
@@ -68,6 +73,25 @@ class PromptRequest(BaseModel):
 class MessageRequest(BaseModel):
     messages: List[dict]
 
+class GitHubConfig(BaseModel):
+    token: str = Field(..., description="GitHub personal access token")
+    repo_name: Optional[str] = Field(None, description="Optional repository name")
+
+class DeploymentRequest(BaseModel):
+    code: str = Field(..., description="The Streamlit application code")
+    github_config: GitHubConfig = Field(..., description="GitHub configuration")
+
+    class Config:
+        schema_extra = {
+            "example": {
+                "code": "import streamlit as st\n\nst.title('Hello World')",
+                "github_config": {
+                    "token": "ghp_xxxxxxxxxxxx",
+                    "repo_name": "my-streamlit-app"
+                }
+            }
+        }
+
 class DependencyManager:
     @staticmethod
     def extract_imports(code: str) -> set:
@@ -117,6 +141,101 @@ class DependencyManager:
         except Exception as e:
             print(f"Error installing packages: {e}")
             return False
+
+class DeploymentManager:
+    def __init__(self, github_token: str):
+        try:
+            self.github = Github(github_token)
+            self.user = self.github.get_user()
+            # Verify token by trying to access user data
+            self.username = self.user.login
+        except Exception as e:
+            raise Exception(f"Failed to authenticate with GitHub: {str(e)}")
+
+    def create_repository(self, repo_name: str, code: str) -> dict:
+        repo = None
+        try:
+            # Check if repo already exists
+            try:
+                existing_repo = self.user.get_repo(repo_name)
+                raise Exception(f"Repository {repo_name} already exists")
+            except github.GithubException as e:
+                if e.status != 404:  # If error is not "Not Found"
+                    raise
+
+            print(f"Creating new repository: {repo_name}")
+            # Create new repository
+            repo = self.user.create_repo(
+                name=repo_name,
+                description="Streamlit application generated with AI",
+                private=False,
+                auto_init=False  # Changed to False to avoid conflicts
+            )
+
+            print("Repository created, initializing files...")
+            
+            # Create all necessary files
+            files_to_create = {
+                "README.md": f"""
+# {repo_name}
+
+Streamlit application generated with AI.
+
+## Running Locally
+
+1. Install requirements:
+```bash
+pip install -r requirements.txt
+```
+
+2. Run the app:
+```bash
+streamlit run app.py
+```
+
+## Deployment
+This app can be deployed on [Streamlit Cloud](https://share.streamlit.io)
+                """.strip(),
+                
+                "requirements.txt": """
+streamlit>=1.24.0
+pandas
+numpy
+pillow
+                """.strip(),
+                
+                "app.py": code
+            }
+
+            # Create files one by one
+            for file_name, content in files_to_create.items():
+                try:
+                    repo.create_file(
+                        path=file_name,
+                        message=f"Add {file_name}",
+                        content=content,
+                        branch="main"
+                    )
+                    print(f"Created {file_name}")
+                except Exception as e:
+                    print(f"Error creating {file_name}: {str(e)}")
+                    raise
+
+            return {
+                "repo_url": repo.html_url,
+                "clone_url": repo.clone_url,
+                "deploy_url": f"https://share.streamlit.io/deploy?repository={quote(f'{self.username}/{repo_name}')}&branch=main"
+            }
+
+        except Exception as e:
+            # Cleanup if repository was created but something failed
+            if repo:
+                try:
+                    print(f"Error occurred, cleaning up repository {repo_name}")
+                    repo.delete()
+                except:
+                    print(f"Failed to cleanup repository {repo_name}")
+            raise Exception(f"Failed to create repository: {str(e)}")
 
 def fix_streamlit_imports(code: str) -> str:
     # First clean up any malformed decorators
@@ -238,10 +357,12 @@ address = "127.0.0.1"
 enableCORS = true
 enableXsrfProtection = false
 maxUploadSize = 200
+
 [browser]
 serverAddress = "127.0.0.1"
 serverPort = {port}
 gatherUsageStats = false
+
 [theme]
 primaryColor = "#F63366"
 backgroundColor = "#FFFFFF"
@@ -406,6 +527,72 @@ async def iterate_app(request: MessageRequest):
             
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+@app.post("/deploy")
+async def deploy_app(request: DeploymentRequest):
+    try:
+        print("Starting deployment process...")
+        
+        if not request.code:
+            raise HTTPException(status_code=400, detail="No code provided for deployment")
+            
+        if not request.github_config.token:
+            raise HTTPException(status_code=400, detail="GitHub token is required")
+
+        # Initialize deployment manager
+        try:
+            deployment_manager = DeploymentManager(request.github_config.token)
+            print(f"Successfully authenticated as GitHub user: {deployment_manager.username}")
+        except Exception as e:
+            print(f"GitHub authentication error: {str(e)}")
+            raise HTTPException(
+                status_code=401, 
+                detail=f"GitHub authentication failed: {str(e)}"
+            )
+
+        # Generate repository name if not provided
+        repo_name = request.github_config.repo_name or f"streamlit-app-{int(time.time())}"
+        
+        # Validate repository name
+        if not re.match(r'^[a-zA-Z0-9_-]+$', repo_name):
+            raise HTTPException(
+                status_code=400, 
+                detail="Invalid repository name. Use only letters, numbers, hyphens, and underscores"
+            )
+
+        print(f"Creating repository: {repo_name}")
+        
+        try:
+            result = deployment_manager.create_repository(repo_name, request.code)
+            print(f"Repository created successfully at: {result['repo_url']}")
+            
+            return {
+                "status": "success",
+                "github_url": result["repo_url"],
+                "deploy_url": result["deploy_url"],
+                "message": "Repository created successfully. Click the deploy URL to complete deployment on Streamlit Cloud."
+            }
+        except Exception as e:
+            error_msg = str(e)
+            if "already exists" in error_msg:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Repository '{repo_name}' already exists. Please choose a different name."
+                )
+            else:
+                print(f"Repository creation error: {error_msg}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to create repository: {error_msg}"
+                )
+            
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        print(f"Unexpected deployment error: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Unexpected error during deployment: {str(e)}"
+        )
 
 @app.on_event("shutdown")
 async def shutdown_event():
