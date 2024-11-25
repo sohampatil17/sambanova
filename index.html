@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI App Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        
+        @keyframes typing {
+            0% { opacity: .2; }
+            20% { opacity: 1; }
+            100% { opacity: .2; }
+        }
+
+        @keyframes slideIn {
+            0% { transform: translateY(10px); opacity: 0; }
+            100% { transform: translateY(0); opacity: 1; }
+        }
+
+        .loading-container {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        .loading-icon {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        .chat-bubble {
+            position: relative;
+            margin-bottom: 1rem;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        .user-bubble {
+            background: #3B82F6;
+            color: white;
+            margin-left: auto;
+            border-radius: 18px 18px 4px 18px;
+            padding: 12px 16px;
+            max-width: 80%;
+        }
+
+        .assistant-bubble {
+            background: #F3F4F6;
+            color: #1F2937;
+            margin-right: auto;
+            border-radius: 18px 18px 18px 4px;
+            padding: 12px 16px;
+            max-width: 80%;
+        }
+
+        .typing-indicator span {
+            animation: typing 1s infinite;
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background-color: #9CA3AF;
+            margin: 0 2px;
+        }
+
+        #chatHistory::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+
+        #chatHistory::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+
+        #chatHistory::-webkit-scrollbar-thumb {
+            background: #888;
+            border-radius: 10px;
+        }
+
+        #chatHistory::-webkit-scrollbar-thumb:hover {
+            background: #666;
+        }
+
+        .glassmorphism {
+            background: rgba(255, 255, 255, 0.7);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+
+        /* Modal animations */
+        .modal-enter {
+            animation: modalEnter 0.3s ease-out;
+        }
+
+        @keyframes modalEnter {
+            from {
+                opacity: 0;
+                transform: scale(0.95);
+            }
+            to {
+                opacity: 1;
+                transform: scale(1);
+            }
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-gray-50 to-gray-100 min-h-screen">
+    <div class="max-w-6xl mx-auto p-4">
+        <!-- Header -->
+        <header class="text-center mb-8 py-6">
+            <h1 class="text-4xl font-bold text-gray-800 mb-2">AI App Generator</h1>
+            <p class="text-gray-600">Transform your ideas into functional web applications</p>
+        </header>
+
+        <div class="flex flex-col space-y-6">
+            <!-- Preview Section -->
+            <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+                <div class="flex justify-between items-center p-4 border-b bg-gray-50">
+                    <h2 class="text-xl font-semibold text-gray-800 flex items-center">
+                        <i class="fas fa-desktop mr-2 text-blue-500"></i>
+                        Live Preview
+                    </h2>
+                    <div class="flex gap-2">
+                        <button onclick="deployApp()" 
+                                id="deployButton"
+                                class="hidden bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition duration-200 flex items-center gap-2">
+                            <i class="fas fa-cloud-upload-alt"></i>
+                            Deploy App
+                        </button>
+                        <a id="openNewTab" 
+                           target="_blank" 
+                           class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition duration-200 flex items-center gap-2">
+                            <i class="fas fa-external-link-alt"></i>
+                            Open in New Tab
+                        </a>
+                    </div>
+                </div>
+
+                <div class="relative w-full h-[600px]">
+                    <!-- Loading Screen -->
+                    <div id="previewLoading" class="absolute inset-0 loading-container flex items-center justify-center z-10">
+                        <div class="text-center text-white p-8 rounded-lg">
+                            <div class="loading-icon mb-4">
+                                <i class="fas fa-magic text-5xl"></i>
+                            </div>
+                            <div class="space-y-3">
+                                <h3 class="text-2xl font-bold">Creating Your App</h3>
+                                <p class="text-lg opacity-90">Transforming your idea into reality...</p>
+                                <div class="mt-4">
+                                    <p id="loadingStatus" class="text-sm opacity-75">Initializing...</p>
+                                </div>
+                            </div>
+                            <button id="retryButton" 
+                                    onclick="retryLoad()" 
+                                    class="mt-6 bg-white text-purple-600 px-4 py-2 rounded-lg 
+                                           hover:bg-purple-50 transition-colors duration-200 hidden">
+                                <i class="fas fa-redo-alt mr-2"></i>
+                                Retry Loading
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Preview Frame -->
+                    <iframe id="previewFrame" 
+                        class="w-full h-full"
+                        src="about:blank"
+                        allow="camera;microphone;clipboard-read;clipboard-write;fullscreen"
+                        sandbox="allow-forms allow-scripts allow-same-origin allow-popups allow-modals allow-downloads">
+                    </iframe>
+                </div>
+            </div>
+
+            <!-- Chat Section -->
+            <div class="bg-white rounded-xl shadow-lg">
+                <div class="flex flex-col h-[300px]">
+                    <!-- Chat Header -->
+                    <div class="flex items-center p-4 border-b">
+                        <div class="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
+                            <i class="fas fa-robot text-white"></i>
+                        </div>
+                        <h3 class="ml-3 font-semibold text-gray-800">AI Assistant</h3>
+                    </div>
+
+                    <!-- Chat Messages -->
+                    <div id="chatHistory" class="flex-1 overflow-y-auto p-4 space-y-4">
+                        <!-- Welcome message will be first chat bubble -->
+                    </div>
+
+                    <!-- Typing Indicator -->
+                    <div id="typingIndicator" class="hidden px-4 py-2">
+                        <div class="assistant-bubble inline-flex items-center space-x-1">
+                            <div class="typing-indicator">
+                                <span></span>
+                                <span></span>
+                                <span></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Input Area -->
+                    <div class="p-4 border-t bg-gray-50">
+                        <div class="flex gap-2">
+                            <textarea 
+                                id="promptInput" 
+                                class="flex-1 p-3 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none bg-white"
+                                placeholder="Describe the app you want to create..."
+                                rows="2"
+                            ></textarea>
+                            <button onclick="generateApp()" 
+                                class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition duration-200 flex items-center gap-2 h-fit">
+                                <i class="fas fa-paper-plane"></i>
+                                Send
+                            </button>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-2">Press Ctrl + Enter to send</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Deployment Modal -->
+    <div id="deployModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="modal-enter bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 class="text-xl font-bold mb-4">Deploy to Streamlit Cloud</h3>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                        GitHub Token
+                    </label>
+                    <input type="password" 
+                           id="githubToken" 
+                           class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                           placeholder="Enter your GitHub token">
+                    <p class="text-xs text-gray-500 mt-1">
+                        Need a token? <a href="https://github.com/settings/tokens" target="_blank" class="text-blue-500">Create one here</a>
+                        with 'repo' scope
+                    </p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                        Repository Name (optional)
+                    </label>
+                    <input type="text" 
+                           id="repoName" 
+                           class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                           placeholder="my-streamlit-app">
+                </div>
+                <div class="flex justify-end gap-2 mt-6">
+                    <button onclick="closeDeployModal()" 
+                            class="px-4 py-2 border rounded hover:bg-gray-50">
+                        Cancel
+                    </button>
+                    <button onclick="confirmDeploy()" 
+                            class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
+                        Deploy
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let chatMessages = [];
+        let currentCode = '';
+        let currentPort = null;
+        let loadingMessages = [
+            "Analyzing your request...",
+            "Designing the application structure...",
+            "Writing the code...",
+            "Setting up the components...",
+            "Configuring the interface...",
+            "Almost ready..."
+        ];
+        let loadingMessageIndex = 0;
+        let loadingInterval;
+
+        // Add welcome message on load
+        window.onload = function() {
+            addAssistantMessage("👋 Hi! I'm your AI assistant. Describe the app you want to create, and I'll help you build it!");
+        };
+
+        function showTypingIndicator() {
+            document.getElementById('typingIndicator').classList.remove('hidden');
+        }
+
+        function hideTypingIndicator() {
+            document.getElementById('typingIndicator').classList.add('hidden');
+        }
+
+        function updateLoadingMessage() {
+            const statusElement = document.getElementById('loadingStatus');
+            statusElement.textContent = loadingMessages[loadingMessageIndex];
+            loadingMessageIndex = (loadingMessageIndex + 1) % loadingMessages.length;
+        }
+
+        function showLoading() {
+            document.getElementById('previewLoading').style.display = 'flex';
+            document.getElementById('retryButton').classList.add('hidden');
+            loadingMessageIndex = 0;
+            updateLoadingMessage();
+            loadingInterval = setInterval(updateLoadingMessage, 2000);
+        }
+
+        function hideLoading() {
+            document.getElementById('previewLoading').style.display = 'none';
+            clearInterval(loadingInterval);
+        }
+
+        function showDeployButton() {
+            document.getElementById('deployButton').classList.remove('hidden');
+        }
+
+        function deployApp() {
+            document.getElementById('deployModal').classList.remove('hidden');
+        }
+
+        function closeDeployModal() {
+            document.getElementById('deployModal').classList.add('hidden');
+        }
+
+        function addAssistantMessage(message) {
+            showTypingIndicator();
+            setTimeout(() => {
+                hideTypingIndicator();
+                chatMessages.push({ role: "assistant", content: message });
+                updateChatHistory();
+            }, 1000);
+        }
+
+        async function checkServerStatus(port) {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 1000);
+                
+                const response = await fetch(`http://127.0.0.1:${port}`, {
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                return response.ok;
+            } catch (error) {
+                return false;
+            }
+        }
+
+        async function waitForServer(port, maxRetries = 10) {
+            const timeout = 500;
+            for (let i = 0; i < maxRetries; i++) {
+                updateLoadingMessage();
+                if (await checkServerStatus(port)) {
+                    return true;
+                }
+                await new Promise(resolve => setTimeout(resolve, timeout));
+            }
+            return false;
+        }
+
+        async function generateApp() {
+            const prompt = document.getElementById('promptInput').value;
+            if (!prompt) return;
+
+            chatMessages.push({ role: "user", content: prompt });
+            updateChatHistory();
+            document.getElementById('promptInput').value = '';
+            showTypingIndicator();
+            showLoading();
+
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+                const response = await fetch('http://127.0.0.1:8000/generate-app', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ prompt }),
+                    signal: controller.signal
+                });
+
+                clearTimeout(timeoutId);
+                const data = await response.json();
+                
+                if (data.status === 'success') {
+                    currentCode = data.code;
+                    currentPort = data.port;
+                    showDeployButton();
+                    
+                    let serverReady = false;
+                    try {
+                        serverReady = await Promise.race([
+                            waitForServer(data.port),
+                            new Promise((_, reject) => 
+                                setTimeout(() => reject(new Error('Timeout')), 15000)
+                            )
+                        ]);
+                    } catch (error) {
+                        console.log('Server check timed out');
+                    }
+
+                    const streamlitUrl = `http://127.0.0.1:${data.port}`;
+                    document.getElementById('previewFrame').src = streamlitUrl;
+                    document.getElementById('openNewTab').href = streamlitUrl;
+
+                    if (!serverReady) {
+                        document.getElementById('retryButton').classList.remove('hidden');
+                        hideTypingIndicator();
+                        addAssistantMessage("The app is taking longer than expected to start. You can try refreshing or wait a moment.");
+                    } else {
+                        hideTypingIndicator();
+                        addAssistantMessage("I've created your app! Let me know if you'd like any changes.");
+                    }
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                hideTypingIndicator();
+                if (error.name === 'AbortError') {
+                    addAssistantMessage("The request took too long. Please try again with a simpler app description.");
+                } else {
+                    addAssistantMessage("I encountered an error while creating your app. Please try again.");
+                }
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function iterateApp() {
+            const input = document.getElementById('promptInput').value;
+            if (!input) return;
+
+            chatMessages.push({ role: "user", content: input });
+            updateChatHistory();
+            document.getElementById('promptInput').value = '';
+            showTypingIndicator();
+            showLoading();
+
+            try {
+                const response = await fetch('http://127.0.0.1:8000/iterate-app', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ messages: chatMessages }),
+                });
+
+                const data = await response.json();
+                if (data.status === 'success') {
+                    currentCode = data.response;
+                    currentPort = data.port;
+
+                    const serverReady = await waitForServer(data.port);
+                    if (serverReady) {
+                        const streamlitUrl = `http://127.0.0.1:${data.port}`;
+                        document.getElementById('previewFrame').src = streamlitUrl;
+                        document.getElementById('openNewTab').href = streamlitUrl;
+                        
+                        setTimeout(() => {
+                            hideTypingIndicator();
+                            addAssistantMessage("I've updated your app with the requested changes. How does it look now?");
+                        }, 1000);
+                    } else {
+                        document.getElementById('retryButton').classList.remove('hidden');
+                        hideTypingIndicator();
+                        addAssistantMessage("The update is taking longer than expected. Try refreshing the preview.");
+                    }
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                hideTypingIndicator();
+                addAssistantMessage("I encountered an error while updating your app. Please try again.");
+            } finally {
+                hideLoading();
+            }
+        }
+
+        async function confirmDeploy() {
+            const token = document.getElementById('githubToken').value.trim();
+            const repoName = document.getElementById('repoName').value.trim();
+
+            if (!token) {
+                alert('Please enter a GitHub token');
+                return;
+            }
+
+            if (repoName && !/^[a-zA-Z0-9_-]+$/.test(repoName)) {
+                alert('Repository name can only contain letters, numbers, hyphens, and underscores');
+                return;
+            }
+
+            showLoading();
+            try {
+                // Log the request payload for debugging
+                const payload = {
+                    code: currentCode,
+                    github_config: {
+                        token: token,
+                        repo_name: repoName || null
+                    }
+                };
+                console.log('Deployment payload:', { ...payload, github_config: { ...payload.github_config, token: '***' } });
+
+                const response = await fetch('http://127.0.0.1:8000/deploy', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload),
+                });
+
+                const data = await response.json();
+                console.log('Deployment response:', data);
+                
+                if (!response.ok) {
+                    throw new Error(data.detail || JSON.stringify(data));
+                }
+
+                closeDeployModal();
+                addAssistantMessage(`
+        🚀 Deployment successful! Here are your next steps:
+
+        1. Click this link to deploy: [Deploy to Streamlit](${data.deploy_url})
+        2. View your code on GitHub: [Repository](${data.github_url})
+
+        Make sure you're logged into Streamlit Cloud before clicking the deploy link.`);
+
+            } catch (error) {
+                console.error('Deployment error:', error);
+                addAssistantMessage(`Deployment failed: ${error.message || 'Unknown error occurred'}
+
+        Please check:
+        1. Your GitHub token has the 'repo' scope
+        2. The token is entered correctly (it should start with 'ghp_')
+        3. You have sufficient GitHub permissions
+        4. The repository name (if provided) is available
+
+        You can create a new token at: https://github.com/settings/tokens/new?scopes=repo`);
+            } finally {
+                hideLoading();
+                document.getElementById('githubToken').value = '';
+                document.getElementById('repoName').value = '';
+            }
+        }
+
+        async function retryLoad() {
+            if (currentPort) {
+                showLoading();
+                const streamlitUrl = `http://127.0.0.1:${currentPort}`;
+                document.getElementById('previewFrame').src = streamlitUrl + '?t=' + Date.now();
+                
+                const serverReady = await waitForServer(currentPort);
+                if (!serverReady) {
+                    document.getElementById('retryButton').classList.remove('hidden');
+                    addAssistantMessage("Still having trouble loading the app. You might want to try a different approach.");
+                } else {
+                    hideLoading();
+                    addAssistantMessage("The app is now ready!");
+                }
+            }
+        }
+
+        function updateChatHistory() {
+            const chatHistory = document.getElementById('chatHistory');
+            chatHistory.innerHTML = chatMessages
+                .filter(msg => msg.role !== 'system')
+                .map(msg => `
+                    <div class="chat-bubble ${msg.role === 'user' ? 'user-bubble' : 'assistant-bubble'}">
+                        ${msg.role === 'assistant' ? '<i class="fas fa-robot mr-2"></i>' : ''}
+                        <p>${msg.content}</p>
+                    </div>
+                `)
+                .join('');
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+
+        // Handle input submission with Enter+Ctrl
+        document.getElementById('promptInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && e.ctrlKey) {
+                e.preventDefault();
+                if (currentCode === '') {
+                    generateApp();
+                } else {
+                    iterateApp();
+                }
+            }
+        });
+
+        // Auto-resize textarea
+        document.getElementById('promptInput').addEventListener('input', function() {
+            this.style.height = 'auto';
+            this.style.height = (this.scrollHeight) + 'px';
+        });
+
+        // Handle iframe load events
+        document.getElementById('previewFrame').addEventListener('load', function() {
+            if (this.contentWindow.location.href !== 'about:blank') {
+                hideLoading();
+            }
+        });
+    </script>
+</body>
+</html>
